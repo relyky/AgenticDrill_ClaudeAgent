@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 
 load_dotenv() # 這會讀取 .env 檔案
 
@@ -21,8 +22,22 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+system_prompt="""
+You are a helpful assistant that tells the current time in cities. Use the 'get_current_time' tool for this purpose.
+"""
+
+# 組織 Claude Agent
+options = ClaudeAgentOptions(
+		system_prompt=system_prompt,  # 定義 AI 的角色與行為準則
+		max_turns=None,  # 不限制對話輪次（適用於 agent 模式，單次查詢時無影響）
+		model="haiku",  # 指定使用的 Claude 模型版本
+		allowed_tools=[
+		],
+	)
+
+
 # 設定 FastAPI
-app = FastAPI()
+app = FastAPI(title="Claude Agent Drill")
 
 # CORS
 app.add_middleware(
@@ -39,9 +54,22 @@ async def handle_query(request: QueryRequest):
         logger.debug("entry handle_query")
         now = datetime.now()
         
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(prompt=request.query)
+            
+            response = []
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            logging.info(f"Claude: {block.text}")
+                            response.append(block.text)
+                            
+            responseText = "\n".join(response)                
+            
         return {
             "received_time": now,
-			"responseText": "你好。我來自 Claude Agent Drill",
+			"responseText": responseText,
 		}
 
     except Exception as e:
