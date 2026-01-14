@@ -71,7 +71,6 @@ async def health_check():
         "status": "ok",
         "service_name": SERVICE_NAME,
         "version": VERSION,
-        "ANTHROPIC_API_KEY": os.getenv('ANTHROPIC_API_KEY')
 	}    
 
 @app.post("/query")
