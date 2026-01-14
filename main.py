@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -70,6 +71,7 @@ async def health_check():
         "status": "ok",
         "service_name": SERVICE_NAME,
         "version": VERSION,
+        "ANTHROPIC_API_KEY": os.getenv('ANTHROPIC_API_KEY')
 	}    
 
 @app.post("/query")
@@ -89,7 +91,7 @@ async def handle_query(request: QueryRequest):
                             logging.info(f"Claude: {block.text}")
                             response.append(block.text)
                             
-            responseText = "\n".join(response)                
+            responseText = "".join(response)                
             
         return {
             "received_time": now,
