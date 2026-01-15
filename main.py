@@ -44,7 +44,8 @@ options = ClaudeAgentOptions(
         "general_tools": create_general_tools_mcp(),
     }, 
 	allowed_tools=[
-        "mcp__general_tools__get_system_time"
+        "mcp__general_tools__get_system_time",
+        "mcp__general_tools__get_weather"
 	],
 )
 
