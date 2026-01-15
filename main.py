@@ -26,20 +26,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 組織 Claude Agent
+# system_prompt="""
+# You are a helpful assistant that tells the current time in cities. Use the 'get_current_time' tool for this purpose.
+# """
+
+# 你是樂於助人的助手。你的母語是繁體中文(zh-TW)。
 system_prompt="""
-You are a helpful assistant that tells the current time in cities. Use the 'get_current_time' tool for this purpose.
+You are a helpful assistant. Your native language is Traditional Chinese (zh-TW).
 """
 
 def create_general_tools_mcp():
     
-    @tool("get_current_time", "Returns the current time in a specified city.", {"city": str})
-    async def get_current_time(args: dict[str, Any]) -> dict[str, Any]:
-        city = args["city"]
+    # @tool("get_current_time", "Returns the current time in a specified city.", {"city": str})
+    # async def get_current_time(args: dict[str, Any]) -> dict[str, Any]:
+    #     city = args["city"]
+    #     return {
+    #         "content": [{"type": "text", "text": f"The time in {city} is 10:30 AM"}]
+    #     }
+
+    @tool("get_system_time", "Returns the current system time with timezone information.", {})
+    async def get_system_time(args: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now().astimezone()
         return {
-            "content": [{"type": "text", "text": f"The time in {city} is 10:30 AM"}]
+            "content": [{
+                "type": "text",
+                "text": f"System time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')} (ISO: {now.isoformat()})"
+            }]
         }
         
-    return create_sdk_mcp_server(name="General tools", version="0.0.1", tools=[get_current_time])
+    return create_sdk_mcp_server(name="General tools", version="0.0.2", tools=[get_system_time])
 
 options = ClaudeAgentOptions(
 	system_prompt=system_prompt,  # 定義 AI 的角色與行為準則
@@ -49,7 +64,7 @@ options = ClaudeAgentOptions(
         "general_tools": create_general_tools_mcp(),
     }, 
 	allowed_tools=[
-        "mcp__general_tools__get_current_time"
+        "mcp__general_tools__get_system_time"
 	],
 )
 
@@ -71,7 +86,7 @@ async def health_check():
         "status": "ok",
         "service_name": SERVICE_NAME,
         "version": VERSION,
-	}    
+	}
 
 @app.post("/query")
 async def handle_query(request: QueryRequest):
