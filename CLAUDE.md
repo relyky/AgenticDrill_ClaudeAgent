@@ -12,11 +12,15 @@ AgenticDrill_ClaudeAgent 是一個基於 FastAPI 的 AI Agent 服務，透過 Cl
 # 安裝依賴
 uv sync --frozen
 
-# 本地開發 (附帶自動重載)
-uvicorn main:app --reload
+# 本地開發 (推薦)
+uv run uvicorn main:app
+
+# 本地開發 (自動重載)
+# **注意**: 自動重載(--reload) 在 windows 環境無效，會出現錯誤訊息: "Failed to start Claude Code: "。原因： --reload 參數會讓 uvicorn 使用不同的事件迴圈機制（watchfiles），這與 Windows 上的 subprocess 支援有衝突。
+uv run uvicorn main:app --reload   
 
 # 運行服務
-uvicorn main:app --host 0.0.0.0 --port 8000
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
 
 # Docker 部署
 docker-compose up --build
