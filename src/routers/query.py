@@ -9,8 +9,8 @@ Query Router - 查詢路由模組
 """
 
 import logging
-from datetime import datetime
-from fastapi import APIRouter
+from typing import List, Optional
+from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
 from src.sdk_mcp_server import create_general_tools_mcp
@@ -21,10 +21,11 @@ class QueryRequest(BaseModel):
     query: str
 
 class QueryResponse(BaseModel):
-    responseText: str
+    responseText: str = ""
     session_id: str | None = None
     usage: dict | None = None
     total_cost_usd: float | None = None
+    error: str | None = None
 
 # Claude Agent 配置
 system_prompt = """
@@ -45,12 +46,16 @@ options = ClaudeAgentOptions(
 router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
-async def handle_query(request: QueryRequest) -> QueryResponse:
+async def handle_query(# 文字欄位使用 Form() 接收
+    userInput: str = Form(...), 
+    # 檔案欄位使用 File() 接收，List[UploadFile] 支援多檔上傳
+    files: Optional[List[UploadFile]] = File(None)
+) -> QueryResponse:
     try:
-        logger.debug(f"handle_query: {request}")
+        logger.debug(f"handle_query: userInput={userInput}")
         
         async with ClaudeSDKClient(options=options) as client:
-            await client.query(prompt=request.query)
+            await client.query(prompt=userInput)
 
             response = []
             session_id = None
@@ -78,4 +83,4 @@ async def handle_query(request: QueryRequest) -> QueryResponse:
         )
 
     except Exception as e:
-        return {"error": str(e)}
+        return QueryResponse(error=str(e))
