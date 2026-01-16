@@ -28,15 +28,26 @@ docker-compose up --build
 
 ## Architecture
 
-**單體式 FastAPI 應用 (main.py):**
-- `ClaudeSDKClient` 處理與 Claude AI 的互動
-- MCP 工具透過 `@tool` 裝飾器定義 (如 `get_current_time`)
-- `/query` 端點接收用戶查詢，經 Claude 處理後回傳結果
-- `/healthz` 健康檢查端點
+**模組化 FastAPI 應用:**
+```
+main.py                     # 應用程式進入點，註冊路由與中介軟體
+src/
+├── routers/                # API 路由模組
+│   ├── health.py           # /healthz 健康檢查端點
+│   └── query.py            # /query 端點，整合 ClaudeSDKClient
+└── sdk_mcp_server.py       # MCP 工具定義 (使用 @tool 裝飾器)
+```
 
 **請求流程:**
 ```
-QueryRequest → FastAPI Handler → ClaudeSDKClient → Claude AI (with MCP tools) → Response
+QueryRequest → query_router → ClaudeSDKClient → Claude AI (with MCP tools) → QueryResponse
+```
+
+**MCP 工具定義模式:**
+```python
+@tool("tool_name", "description", {"param": type})
+async def tool_name(args: dict[str, Any]) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": "result"}]}
 ```
 
 ## Key Dependencies
