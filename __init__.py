@@ -1,2 +1,2 @@
 SERVICE_NAME="Claude Agent Drill"
-VERSION="0.0.5-alpha"
+VERSION="0.1.0-alpha"
