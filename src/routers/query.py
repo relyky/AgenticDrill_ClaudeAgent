@@ -11,7 +11,7 @@ Query Router - 查詢路由模組
 
 import logging
 import base64
-import json
+from pathlib import Path
 from typing import Any, AsyncGenerator, AsyncIterable, List, Optional
 from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
@@ -20,8 +20,8 @@ from src.sdk_mcp_server import create_general_tools_mcp
 
 logger = logging.getLogger(__name__)
 
-class QueryRequest(BaseModel):
-    query: str
+#class QueryRequest(BaseModel):
+#    query: str
 
 class QueryResponse(BaseModel):
     responseText: str = ""
@@ -30,11 +30,11 @@ class QueryResponse(BaseModel):
     total_cost_usd: float | None = None
     error: str | None = None
 
-# 文字格式
+# 文字格式(文字類別檔)
 _text_formats = {".csv", ".json", ".md", ".txt", ".xml", ".yaml", ".yml"}
 
-# 二進位格式
-_binary_formats = {".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg"}
+# 二進位格式(非文字類別檔)
+#_binary_formats = {".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg"}
 
 # Claude Agent 配置
 system_prompt = """
@@ -54,23 +54,43 @@ options = ClaudeAgentOptions(
 
 router = APIRouter()
 
-async def process_uploaded_text_files(files: Optional[List[UploadFile]]) -> AsyncGenerator[dict, None]:
+async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGenerator[dict, None]:
     """讀取上傳文字類檔案，逐一 yield 格式化的訊息物件。"""
     if files:  # 只在有檔案時才處理
         for file in files:
             content = await file.read()
-            text = content.decode('utf-8')
             size = len(content)
+            # 取得副檔名（含點號，例如 ".csv"）
+            ext = Path(file.filename).suffix.lower()
 
-            yield {
-                "type": "text",
-                "text": f"""=== **file**: {file.filename} ===
+            # 判斷是否為文字檔類別
+            is_text_file = ext in _text_formats
+
+            if is_text_file:
+                # 文字類別檔：解碼為 UTF-8 文字
+                logger.debug(f"上傳文字類別檔: {ext} {file.filename}")
+                text = content.decode('utf-8')
+                yield {
+                    "type": "text",
+                    "text": f"""=== **file**: {file.filename} ===
 **MIME type**: {file.content_type}
 **file size**: {size} bytes
 
 {text}"""
-            }
-
+                }
+            else:
+                # 非文字類別檔
+                logger.debug(f"上傳非文字類別檔: {ext} {file.filename}")
+                base64_data = base64.b64encode(content).decode("utf-8")
+                yield {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": file.content_type,
+                        "data": base64_data
+                    }
+                }
+                
 @router.post("/query", response_model=QueryResponse)
 async def handle_query(
     # 文字欄位使用 Form() 接收
@@ -97,8 +117,9 @@ async def handle_query(
         async def build_prompt() -> AsyncIterable[dict[str, Any]]:
             # 收集所有 content blocks
             content_blocks = []
-            async for file_block in process_uploaded_text_files(files):
+            async for file_block in process_uploaded_files(files):
                 content_blocks.append(file_block)
+            # 後使用者提問
             content_blocks.append({"type": "text", "text": userInput})
 
             # yield 符合 SDK 預期格式的訊息
@@ -120,7 +141,7 @@ async def handle_query(
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):
-                            logging.info(f"Claude: {block.text}")
+                            logger.info(f"Claude: {block.text}")
                             response.append(block.text)
                 elif isinstance(message, ResultMessage):
                     session_id = message.session_id
@@ -137,5 +158,5 @@ async def handle_query(
         )
 
     except Exception as e:
-        raise e
-        #return QueryResponse(error=str(e))
+        logger.exception(f"handle_query exception: {e}")
+        return QueryResponse(error=str(e))
