@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     responseText: str = ""
     session_id: str | None = None
+    result_session_id: str | None = None
     usage: dict | None = None
     total_cost_usd: float | None = None
     error: str | None = None
@@ -55,22 +56,22 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
     try:
         logger.debug(f"handle_chat: user_input={request.user_input}, session_id={request.session_id}")
 
-        # 取得或建立 session
-        session, sid = await session_manager.get_or_create_session(
+        # 取得或建立 session（共用 client）
+        client, state, sid = await session_manager.get_or_create_session(
             session_id=request.session_id,
             options=options
         )
 
-        # 使用 session lock 防止並發存取
-        async with session.lock:
-            await session.client.query(prompt=request.user_input)
+        # 使用 session lock 防止同一 session 並發存取
+        async with state.lock:
+            await client.query(prompt=request.user_input, session_id=sid)
 
             response = []
             result_session_id = None
             usage = None
             total_cost_usd = None
 
-            async for message in session.client.receive_response():
+            async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):

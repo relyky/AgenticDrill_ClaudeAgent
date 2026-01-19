@@ -3,7 +3,6 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
 
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
@@ -14,9 +13,9 @@ SESSION_TIMEOUT_MINUTES = 30
 
 
 @dataclass
-class ManagedSession:
-    """管理單一會話的資料結構"""
-    client: ClaudeSDKClient
+class SessionState:
+    """單一會話的狀態（不含 client）"""
+    session_id: str
     last_accessed: datetime = field(default_factory=datetime.now)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -30,18 +29,31 @@ class ManagedSession:
 
 
 class SessionManager:
-    """管理多個 Claude SDK 會話的單例類別"""
+    """管理多個 Claude SDK 會話的單例類別（共用單一 client）"""
 
     def __init__(self):
-        self._sessions: dict[str, ManagedSession] = {}
-        self._lock = asyncio.Lock()
+        self._client: ClaudeSDKClient | None = None
+        self._client_lock = asyncio.Lock()
+        self._sessions: dict[str, SessionState] = {}
+        self._sessions_lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
+        self._options: ClaudeAgentOptions | None = None
+
+    async def _ensure_client(self, options: ClaudeAgentOptions) -> ClaudeSDKClient:
+        """確保 client 已連線（內部使用）"""
+        async with self._client_lock:
+            if self._client is None:
+                self._options = options
+                self._client = ClaudeSDKClient(options=options)
+                await self._client.connect()
+                logger.info("Shared ClaudeSDKClient connected")
+            return self._client
 
     async def get_or_create_session(
         self,
         session_id: str | None,
         options: ClaudeAgentOptions
-    ) -> tuple[ManagedSession, str]:
+    ) -> tuple[ClaudeSDKClient, SessionState, str]:
         """
         取得現有 session 或建立新的 session
 
@@ -50,52 +62,47 @@ class SessionManager:
             options: Claude Agent 配置選項
 
         Returns:
-            (ManagedSession, session_id) 元組
+            (client, session_state, session_id) 元組
         """
-        async with self._lock:
+        client = await self._ensure_client(options)
+
+        async with self._sessions_lock:
             # 嘗試取得現有 session
             if session_id and session_id in self._sessions:
-                session = self._sessions[session_id]
-                if not session.is_expired():
-                    session.touch()
+                state = self._sessions[session_id]
+                if not state.is_expired():
+                    state.touch()
                     logger.debug(f"Reusing existing session: {session_id}")
-                    return session, session_id
+                    return client, state, session_id
                 else:
-                    # Session 已過期，清理並建立新的
-                    logger.info(f"Session expired, cleaning up: {session_id}")
-                    await self._cleanup_session(session_id)
+                    # Session 已過期，移除
+                    logger.info(f"Session expired, removing: {session_id}")
+                    del self._sessions[session_id]
 
-            # 建立新 session
+            # 建立新 session 狀態
             new_session_id = str(uuid.uuid4())
-            client = ClaudeSDKClient(options=options)
-            await client.connect()
-
-            session = ManagedSession(client=client)
-            self._sessions[new_session_id] = session
+            state = SessionState(session_id=new_session_id)
+            self._sessions[new_session_id] = state
 
             logger.info(f"Created new session: {new_session_id}")
-            return session, new_session_id
+            return client, state, new_session_id
 
-    async def _cleanup_session(self, session_id: str):
-        """清理單一 session（內部使用，需在 _lock 內呼叫）"""
-        if session_id in self._sessions:
-            session = self._sessions.pop(session_id)
-            try:
-                await session.client.disconnect()
-            except Exception as e:
-                logger.warning(f"Error disconnecting session {session_id}: {e}")
+    def get_session_lock(self, session_id: str) -> asyncio.Lock | None:
+        """取得特定 session 的鎖（用於並發控制）"""
+        state = self._sessions.get(session_id)
+        return state.lock if state else None
 
     async def cleanup_expired_sessions(self):
         """清理所有過期的 sessions"""
-        async with self._lock:
+        async with self._sessions_lock:
             expired_ids = [
-                sid for sid, session in self._sessions.items()
-                if session.is_expired()
+                sid for sid, state in self._sessions.items()
+                if state.is_expired()
             ]
 
             for sid in expired_ids:
                 logger.info(f"Cleaning up expired session: {sid}")
-                await self._cleanup_session(sid)
+                del self._sessions[sid]
 
             if expired_ids:
                 logger.info(f"Cleaned up {len(expired_ids)} expired sessions")
@@ -111,7 +118,7 @@ class SessionManager:
         logger.info("Session cleanup task started")
 
     async def shutdown(self):
-        """關閉所有 sessions 並停止清理任務"""
+        """關閉 client 並停止清理任務"""
         # 停止清理任務
         if self._cleanup_task:
             self._cleanup_task.cancel()
@@ -121,10 +128,18 @@ class SessionManager:
                 pass
             self._cleanup_task = None
 
-        # 清理所有 sessions
-        async with self._lock:
-            for sid in list(self._sessions.keys()):
-                await self._cleanup_session(sid)
+        # 斷開共用 client
+        async with self._client_lock:
+            if self._client:
+                try:
+                    await self._client.disconnect()
+                except Exception as e:
+                    logger.warning(f"Error disconnecting client: {e}")
+                self._client = None
+
+        # 清空 sessions
+        async with self._sessions_lock:
+            self._sessions.clear()
 
         logger.info("SessionManager shutdown complete")
 
