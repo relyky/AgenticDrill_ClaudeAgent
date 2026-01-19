@@ -17,7 +17,7 @@ uv run uvicorn main:app
 
 # 本地開發 (自動重載)
 # **注意**: 自動重載(--reload) 在 windows 環境無效，會出現錯誤訊息: "Failed to start Claude Code: "。原因： --reload 參數會讓 uvicorn 使用不同的事件迴圈機制（watchfiles），這與 Windows 上的 subprocess 支援有衝突。
-uv run uvicorn main:app --reload   
+uv run uvicorn main:app --reload
 
 # 運行服務
 uv run uvicorn main:app --host 127.0.0.1 --port 8000
@@ -34,13 +34,14 @@ main.py                     # 應用程式進入點，註冊路由與中介軟�
 api/
 ├── routers/                # API 路由模組
 │   ├── health.py           # /healthz 健康檢查端點
-│   └── query.py            # /query 端點，整合 ClaudeSDKClient
+│   ├── query.py            # /query 端點，支援檔案上傳
+│   └── chat.py             # /chat 端點，純文字對話
 └── sdk_mcp_server.py       # MCP 工具定義 (使用 @tool 裝飾器)
 ```
 
 **請求流程:**
 ```
-QueryRequest → query_router → ClaudeSDKClient → Claude AI (with MCP tools) → QueryResponse
+Request → router → ClaudeSDKClient → Claude AI (with MCP tools) → Response
 ```
 
 **MCP 工具定義模式:**
@@ -49,6 +50,20 @@ QueryRequest → query_router → ClaudeSDKClient → Claude AI (with MCP tools)
 async def tool_name(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": "result"}]}
 ```
+
+## API Endpoints
+
+| 端點 | 方法 | 說明 |
+|------|------|------|
+| `/healthz` | GET | 健康檢查 |
+| `/query` | POST | 支援檔案上傳的查詢 (multipart/form-data) |
+| `/chat` | POST | 純文字對話 (JSON) |
+
+## 檔案上傳支援格式 (/query)
+
+- 文字檔：`.csv`, `.json`, `.md`, `.txt`, `.xml`, `.yaml`, `.yml`
+- 文件檔：`.pdf`
+- 圖片檔：`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
 
 ## Key Dependencies
 
