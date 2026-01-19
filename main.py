@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from __init__ import SERVICE_NAME, VERSION
-from api.routers import health_router, query_router
+from api.routers import health_router, query_router, chat_router
 
 load_dotenv()
 
@@ -26,3 +26,4 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(query_router)
+app.include_router(chat_router)

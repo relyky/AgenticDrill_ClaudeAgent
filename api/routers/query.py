@@ -18,8 +18,6 @@ from pydantic import BaseModel
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
 from api.sdk_mcp_server import create_general_tools_mcp
 
-logger = logging.getLogger(__name__)
-
 #class QueryRequest(BaseModel):
 #    query: str
 
@@ -29,6 +27,9 @@ class QueryResponse(BaseModel):
     usage: dict | None = None
     total_cost_usd: float | None = None
     error: str | None = None
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
 
 # 文字格式(文字類別檔)
 _text_formats = {".csv", ".json", ".md", ".txt", ".xml", ".yaml", ".yml"}
@@ -57,8 +58,6 @@ options = ClaudeAgentOptions(
         "mcp__general_tools__get_system_time"
     ],
 )
-
-router = APIRouter()
 
 async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGenerator[dict, None]:
     """讀取上傳文字類檔案，逐一 yield 格式化的訊息物件。"""
