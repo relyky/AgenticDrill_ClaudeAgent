@@ -107,8 +107,8 @@ async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGene
                     }
                 }
             else:
-                # 不支援的格式：記錄警告並跳過
-                logger.warning(f"不支援的檔案格式: {ext} {file.filename}")
+                # 不支援的格式：拋出例外中止處理
+                raise ValueError(f"不支援的檔案格式: {ext} ({file.filename})")
                 
 @router.post("/query", response_model=QueryResponse)
 async def handle_query(
