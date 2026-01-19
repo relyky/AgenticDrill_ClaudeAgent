@@ -16,7 +16,7 @@ from typing import Any, AsyncGenerator, AsyncIterable, List, Optional
 from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
-from src.sdk_mcp_server import create_general_tools_mcp
+from api.sdk_mcp_server import create_general_tools_mcp
 
 logger = logging.getLogger(__name__)
 

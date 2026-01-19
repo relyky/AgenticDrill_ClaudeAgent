@@ -31,7 +31,7 @@ docker-compose up --build
 **模組化 FastAPI 應用:**
 ```
 main.py                     # 應用程式進入點，註冊路由與中介軟體
-src/
+api/
 ├── routers/                # API 路由模組
 │   ├── health.py           # /healthz 健康檢查端點
 │   └── query.py            # /query 端點，整合 ClaudeSDKClient
