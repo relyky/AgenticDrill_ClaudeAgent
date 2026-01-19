@@ -33,8 +33,14 @@ class QueryResponse(BaseModel):
 # 文字格式(文字類別檔)
 _text_formats = {".csv", ".json", ".md", ".txt", ".xml", ".yaml", ".yml"}
 
-# 二進位格式(非文字類別檔)
-#_binary_formats = {".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg"}
+# 進階文字格式, 需用專門工具預載(暫不支援)
+#_text_ex_formats = {".docx", ".xlsx", ".pptx"}
+
+# 文件格式(現只支援 pdf)
+_document_formats = {".pdf"}
+
+# 圖片格式
+_image_formats = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 # Claude Agent 配置
 system_prompt = """
@@ -64,9 +70,7 @@ async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGene
             ext = Path(file.filename).suffix.lower()
 
             # 判斷是否為文字檔類別
-            is_text_file = ext in _text_formats
-
-            if is_text_file:
+            if ext in _text_formats:
                 # 文字類別檔：解碼為 UTF-8 文字
                 logger.debug(f"上傳文字類別檔: {ext} {file.filename}")
                 text = content.decode('utf-8')
@@ -78,9 +82,9 @@ async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGene
 
 {text}"""
                 }
-            else:
-                # 非文字類別檔
-                logger.debug(f"上傳非文字類別檔: {ext} {file.filename}")
+            elif ext in _document_formats:
+                # 文件類別檔（PDF）
+                logger.debug(f"上傳文件類別檔: {ext} {file.filename}")
                 base64_data = base64.b64encode(content).decode("utf-8")
                 yield {
                     "type": "document",
@@ -90,6 +94,21 @@ async def process_uploaded_files(files: Optional[List[UploadFile]]) -> AsyncGene
                         "data": base64_data
                     }
                 }
+            elif ext in _image_formats:
+                # 圖片類別檔
+                logger.debug(f"上傳圖片類別檔: {ext} {file.filename}")
+                base64_data = base64.b64encode(content).decode("utf-8")
+                yield {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": file.content_type,
+                        "data": base64_data
+                    }
+                }
+            else:
+                # 不支援的格式：記錄警告並跳過
+                logger.warning(f"不支援的檔案格式: {ext} {file.filename}")
                 
 @router.post("/query", response_model=QueryResponse)
 async def handle_query(
