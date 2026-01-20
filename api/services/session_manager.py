@@ -66,7 +66,9 @@ class SessionManager:
         """
         async with self._sessions_lock:
             # new_conversation_no 依現在 sessions 中最大值再加 + 1
+            logger.debug(f"new_conversation_no entry")
             new_conversation_no = max(self._sessions.keys(), default=0) + 1
+            logger.debug(f"new_conversation_no: {new_conversation_no}, system_prompt: {system_prompt}")
 
             # 建立該 Session 專屬的配置，避免修改全域 options
             options = ClaudeAgentOptions(

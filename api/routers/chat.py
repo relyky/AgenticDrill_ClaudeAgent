@@ -27,6 +27,57 @@ class SessionInfo(BaseModel):
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+@router.post("/chat/create", response_model=ChatResponse)
+async def handle_chat_creation(request: ChatOptions) -> ChatResponse:
+    """
+    使用者與 AI 建立新會話，支援短期記憶能力。
+
+    Args:
+        user_input: 使用者對話文字
+
+    Returns:
+        ChatResponse
+    """
+
+    try:
+        logger.debug(f"handle_chat_creation: `{request.system_prompt}` `{request.user_input}`")
+        client, state = await session_manager.create_session(system_prompt=request.system_prompt)
+
+        # 使用 session lock 防止同一 session 並發存取
+        async with state.lock:
+            await client.query(prompt=request.user_input)
+
+            response = []
+            usage = None
+            total_cost_usd = None
+
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            logger.info(f"Claude: {block.text}")
+                            response.append(block.text)
+                elif isinstance(message, ResultMessage):
+                    usage = message.usage
+                    total_cost_usd = message.total_cost_usd
+                    state.running_total_cost_usd += total_cost_usd
+                    state.dialogue_turn += 1
+
+            responseText = "".join(response)
+
+        return ChatResponse(
+            responseText=responseText,
+            conversation_no=state.conversation_no,
+            usage=usage,
+            total_cost_usd=total_cost_usd,
+            running_total_cost_usd=state.running_total_cost_usd,
+            dialogue_turn=state.dialogue_turn
+        )
+    except Exception as e:
+        logger.exception(f"handle_chat_create exception: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.post("/chat/{conversation_no}", response_model=ChatResponse)
 async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatResponse:
     """
@@ -88,55 +139,6 @@ async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatRespons
         )
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
-
-@router.post("/chat/create", response_model=ChatResponse)
-async def handle_chat_creation(request: ChatOptions) -> ChatResponse:
-    """
-    使用者與 AI 建立新會話，支援短期記憶能力。
-
-    Args:
-        user_input: 使用者對話文字
-
-    Returns:
-        ChatResponse
-    """
-
-    try:
-        client, state = await session_manager.create_session(system_prompt=request.system_prompt)
-
-        # 使用 session lock 防止同一 session 並發存取
-        async with state.lock:
-            await client.query(prompt=request.user_input)
-
-            response = []
-            usage = None
-            total_cost_usd = None
-
-            async for message in client.receive_response():
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            logger.info(f"Claude: {block.text}")
-                            response.append(block.text)
-                elif isinstance(message, ResultMessage):
-                    usage = message.usage
-                    total_cost_usd = message.total_cost_usd
-                    state.running_total_cost_usd += total_cost_usd
-                    state.dialogue_turn += 1
-
-            responseText = "".join(response)
-
-        return ChatResponse(
-            responseText=responseText,
-            conversation_no=state.conversation_no,
-            usage=usage,
-            total_cost_usd=total_cost_usd,
-            running_total_cost_usd=state.running_total_cost_usd,
-            dialogue_turn=state.dialogue_turn
-        )
-    except Exception as e:
-        logger.exception(f"handle_chat_create exception: {e}")
         raise HTTPException(status_code=422, detail=str(e))
 
 
