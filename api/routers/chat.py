@@ -9,8 +9,7 @@ class ChatOptions(BaseModel):
     user_input: str
 
 class ChatRequest(BaseModel):
-    user_input: str = None
-    conversation_no: int = None
+    user_input: str
 
 class ChatResponse(BaseModel):
     responseText: str
@@ -28,14 +27,14 @@ class SessionInfo(BaseModel):
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.post("/chat", response_model=ChatResponse)
-async def handle_chat(request: ChatRequest) -> ChatResponse:
+@router.post("/chat/{conversation_no}", response_model=ChatResponse)
+async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatResponse:
     """
     使用者與 AI 接續會話，支援短期記憶能力。
 
     Args:
         user_input: 使用者對話文字
-        conversation_no: 會話識別編號（必填）
+        conversation_no: 會話識別編號（必填
 
     Returns:
         ChatResponse
@@ -44,18 +43,13 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
         HTTPException 404: 若 conversation_no 不存在
     """
     try:
-        logger.debug(f"handle_chat: user_input={request.user_input}, conversation_no={request.conversation_no}")
-
-        if request.conversation_no is None:
-            raise HTTPException(status_code=400, detail="conversation_no is required")
+        logger.debug(f"handle_chat: user_input={request.user_input}, conversation_no={conversation_no}")
 
         client, state = await session_manager.get_session(
-            conversation_no=request.conversation_no
+            conversation_no=conversation_no
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
         raise HTTPException(status_code=422, detail=str(e))
@@ -97,7 +91,7 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=422, detail=str(e))
 
 @router.post("/chat/create", response_model=ChatResponse)
-async def handle_chat_create(request: ChatOptions) -> ChatResponse:
+async def handle_chat_creation(request: ChatOptions) -> ChatResponse:
     """
     使用者與 AI 建立新會話，支援短期記憶能力。
 
