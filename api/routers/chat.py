@@ -1,11 +1,12 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from claude_agent_sdk import ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
-
-from api.sdk_mcp_server import create_general_tools_mcp
+from claude_agent_sdk import AssistantMessage, TextBlock, ResultMessage
 from api.services.session_manager import session_manager
 
+class ChatOptions(BaseModel):
+    system_prompt: str = None
+    user_input: str
 
 class ChatRequest(BaseModel):
     user_input: str = None
@@ -26,24 +27,6 @@ class SessionInfo(BaseModel):
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Claude Agent 配置
-system_prompt = """
-You are a helpful assistant. Your native language is Traditional Chinese (zh-TW).
-"""
-
-options = ClaudeAgentOptions(
-    system_prompt=system_prompt,
-    max_turns=None,
-    model="haiku",
-    mcp_servers={"general_tools": create_general_tools_mcp()},
-    allowed_tools=[
-        "mcp__general_tools__get_weather",
-        "mcp__general_tools__get_system_time"
-    ],
-)
-
-_conversation_counter = 0 # 會話編號
 
 @router.post("/chat", response_model=ChatResponse)
 async def handle_chat(request: ChatRequest) -> ChatResponse:
@@ -114,7 +97,7 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=422, detail=str(e))
 
 @router.post("/chat/create", response_model=ChatResponse)
-async def handle_chat_create(request: ChatRequest) -> ChatResponse:
+async def handle_chat_create(request: ChatOptions) -> ChatResponse:
     """
     使用者與 AI 建立新會話，支援短期記憶能力。
 
@@ -124,18 +107,9 @@ async def handle_chat_create(request: ChatRequest) -> ChatResponse:
     Returns:
         ChatResponse
     """
-    global _conversation_counter
 
     try:
-        _conversation_counter += 1
-        conversation_no = _conversation_counter
-
-        logger.debug(f"handle_chat_create: user_input={request.user_input}, conversation_no={conversation_no}")
-
-        client, state = await session_manager.create_session(
-            conversation_no=conversation_no,
-            options=options
-        )
+        client, state = await session_manager.create_session(system_prompt=request.system_prompt)
 
         # 使用 session lock 防止同一 session 並發存取
         async with state.lock:

@@ -4,7 +4,10 @@
       "Bash(docker --version:*)",
       "Bash(uv lock:*)",
       "Bash(docker compose:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(uv run uvicorn:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(uv run python:*)"
     ]
   }
 }

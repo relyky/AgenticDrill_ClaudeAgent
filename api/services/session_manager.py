@@ -1,11 +1,15 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from api.sdk_mcp_server import create_general_tools_mcp
 
 logger = logging.getLogger(__name__)
 
+# Claude Agent 配置
+default_system_prompt = """
+You are a helpful assistant. Your native language is Traditional Chinese (zh-TW).
+"""
 
 @dataclass
 class SessionState:
@@ -45,8 +49,7 @@ class SessionManager:
 
     async def create_session(
         self,
-        conversation_no: int,
-        options: ClaudeAgentOptions
+        system_prompt: str
     ) -> tuple[ClaudeSDKClient, SessionState]:
         """
         建立新 session（已存在則拋出例外）
@@ -62,45 +65,30 @@ class SessionManager:
             ValueError: 若 session 已存在
         """
         async with self._sessions_lock:
-            if conversation_no in self._sessions:
-                raise ValueError(f"Session {conversation_no} already exists")
+            # new_conversation_no 依現在 sessions 中最大值再加 + 1
+            new_conversation_no = max(self._sessions.keys(), default=0) + 1
 
+            # 建立該 Session 專屬的配置，避免修改全域 options
+            options = ClaudeAgentOptions(
+                system_prompt=system_prompt if system_prompt is not None and system_prompt.strip() else default_system_prompt,
+                max_turns=None,
+                model="haiku",
+                mcp_servers={"general_tools": create_general_tools_mcp()},
+                allowed_tools=[
+                    "mcp__general_tools__get_weather",
+                    "mcp__general_tools__get_system_time"
+                ],
+            )
+
+            # 建立該 Session 專屬的 client
+            logger.debug(f"Creating new session no[{new_conversation_no}], system_prompt: {options.system_prompt}")
             client = ClaudeSDKClient(options=options)
             await client.connect()
-            state = SessionState(conversation_no=conversation_no, client=client)
-            self._sessions[conversation_no] = state
 
-            logger.info(f"Created new session: {conversation_no}")
-            return client, state
+            state = SessionState(conversation_no=new_conversation_no, client=client)
+            self._sessions[new_conversation_no] = state
 
-    async def get_or_create_session(
-        self,
-        conversation_no: int,
-        options: ClaudeAgentOptions
-    ) -> tuple[ClaudeSDKClient, SessionState]:
-        """
-        取得現有 session 或建立新的 session（相容性方法）
-
-        Args:
-            conversation_no: 會話編號
-            options: Claude Agent 配置選項
-
-        Returns:
-            (client, session_state) 元組
-        """
-        async with self._sessions_lock:
-            if conversation_no in self._sessions:
-                state = self._sessions[conversation_no]
-                logger.debug(f"Reusing existing session: {conversation_no}")
-                return state.client, state
-
-            # 建立新 client 和 session
-            client = ClaudeSDKClient(options=options)
-            await client.connect()
-            state = SessionState(conversation_no=conversation_no, client=client)
-            self._sessions[conversation_no] = state
-
-            logger.info(f"Created new session: {conversation_no}")
+            logger.info(f"Created new session no[{new_conversation_no}]")
             return client, state
 
     def get_session_lock(self, conversation_no: int) -> asyncio.Lock | None:
