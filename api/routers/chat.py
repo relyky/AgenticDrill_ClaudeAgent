@@ -14,10 +14,10 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     responseText: str
     conversation_no: int
-    usage: dict | None = None
     total_cost_usd: float
     running_total_cost_usd: float
     dialogue_turn: int
+    usage: dict | None = None
 
 class SessionInfo(BaseModel):
     conversation_no: int = -1
@@ -48,29 +48,36 @@ _conversation_counter = 0 # 會話編號
 @router.post("/chat", response_model=ChatResponse)
 async def handle_chat(request: ChatRequest) -> ChatResponse:
     """
-    用戶與 AI 會話，支援跨請求記憶。
+    使用者與 AI 接續會話，支援短期記憶能力。
 
     Args:
         user_input: 使用者對話文字
-        conversation_no: 會話編號，若相同則延續先前對話
+        conversation_no: 會話識別編號（必填）
 
     Returns:
         ChatResponse
+
+    Raises:
+        HTTPException 404: 若 conversation_no 不存在
     """
     try:
         logger.debug(f"handle_chat: user_input={request.user_input}, conversation_no={request.conversation_no}")
 
-        # 取得或建立 session
-        conversation_no = request.conversation_no
-        if request.conversation_no == -1:
-            global _conversation_counter
-            _conversation_counter = _conversation_counter + 1
-            conversation_no = _conversation_counter
-                    
-        client, state = await session_manager.get_or_create_session(
-            conversation_no=conversation_no,
-            options=options
+        if request.conversation_no is None:
+            raise HTTPException(status_code=400, detail="conversation_no is required")
+
+        client, state = await session_manager.get_session(
+            conversation_no=request.conversation_no
         )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"handle_chat exception: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
 
         # 使用 session lock 防止同一 session 並發存取
         async with state.lock:
@@ -105,6 +112,65 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
         raise HTTPException(status_code=422, detail=str(e))
+
+@router.post("/chat/create", response_model=ChatResponse)
+async def handle_chat_create(request: ChatRequest) -> ChatResponse:
+    """
+    使用者與 AI 建立新會話，支援短期記憶能力。
+
+    Args:
+        user_input: 使用者對話文字
+
+    Returns:
+        ChatResponse
+    """
+    global _conversation_counter
+
+    try:
+        _conversation_counter += 1
+        conversation_no = _conversation_counter
+
+        logger.debug(f"handle_chat_create: user_input={request.user_input}, conversation_no={conversation_no}")
+
+        client, state = await session_manager.create_session(
+            conversation_no=conversation_no,
+            options=options
+        )
+
+        # 使用 session lock 防止同一 session 並發存取
+        async with state.lock:
+            await client.query(prompt=request.user_input)
+
+            response = []
+            usage = None
+            total_cost_usd = None
+
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            logger.info(f"Claude: {block.text}")
+                            response.append(block.text)
+                elif isinstance(message, ResultMessage):
+                    usage = message.usage
+                    total_cost_usd = message.total_cost_usd
+                    state.running_total_cost_usd += total_cost_usd
+                    state.dialogue_turn += 1
+
+            responseText = "".join(response)
+
+        return ChatResponse(
+            responseText=responseText,
+            conversation_no=state.conversation_no,
+            usage=usage,
+            total_cost_usd=total_cost_usd,
+            running_total_cost_usd=state.running_total_cost_usd,
+            dialogue_turn=state.dialogue_turn
+        )
+    except Exception as e:
+        logger.exception(f"handle_chat_create exception: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.get("/chat/sessions", response_model=list[SessionInfo])
 async def handle_list_chat_sessions():

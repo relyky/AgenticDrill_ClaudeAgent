@@ -23,13 +23,63 @@ class SessionManager:
         self._sessions: dict[int, SessionState] = {}
         self._sessions_lock = asyncio.Lock()
 
+    async def get_session(self, conversation_no: int) -> tuple[ClaudeSDKClient, SessionState]:
+        """
+        取得現有 session（不存在則拋出例外）
+
+        Args:
+            conversation_no: 會話編號
+
+        Returns:
+            (client, session_state) 元組
+
+        Raises:
+            KeyError: 若 session 不存在
+        """
+        async with self._sessions_lock:
+            if conversation_no not in self._sessions:
+                raise KeyError(f"Session {conversation_no} not found")
+            state = self._sessions[conversation_no]
+            logger.debug(f"Reusing existing session: {conversation_no}")
+            return state.client, state
+
+    async def create_session(
+        self,
+        conversation_no: int,
+        options: ClaudeAgentOptions
+    ) -> tuple[ClaudeSDKClient, SessionState]:
+        """
+        建立新 session（已存在則拋出例外）
+
+        Args:
+            conversation_no: 會話編號
+            options: Claude Agent 配置選項
+
+        Returns:
+            (client, session_state) 元組
+
+        Raises:
+            ValueError: 若 session 已存在
+        """
+        async with self._sessions_lock:
+            if conversation_no in self._sessions:
+                raise ValueError(f"Session {conversation_no} already exists")
+
+            client = ClaudeSDKClient(options=options)
+            await client.connect()
+            state = SessionState(conversation_no=conversation_no, client=client)
+            self._sessions[conversation_no] = state
+
+            logger.info(f"Created new session: {conversation_no}")
+            return client, state
+
     async def get_or_create_session(
         self,
         conversation_no: int,
         options: ClaudeAgentOptions
     ) -> tuple[ClaudeSDKClient, SessionState]:
         """
-        取得現有 session 或建立新的 session
+        取得現有 session 或建立新的 session（相容性方法）
 
         Args:
             conversation_no: 會話編號
