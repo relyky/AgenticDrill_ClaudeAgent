@@ -122,6 +122,18 @@ class SessionManager:
         state = self._sessions.get(session_id)
         return state.lock if state else None
 
+    async def list_sessions(self) -> list[dict]:
+        """取得所有 session 清單"""
+        async with self._sessions_lock:
+            return [
+                {
+                    "session_id": state.session_id,
+                    "last_accessed": state.last_accessed,
+                    "is_expired": state.is_expired()
+                }
+                for state in self._sessions.values()
+            ]
+
     async def cleanup_expired_sessions(self):
         """清理所有過期的 sessions"""
         async with self._sessions_lock:

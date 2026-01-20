@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
 from claude_agent_sdk import ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
@@ -18,6 +19,16 @@ class ChatResponse(BaseModel):
     usage: dict | None = None
     total_cost_usd: float | None = None
     error: str | None = None
+
+
+class SessionInfo(BaseModel):
+    session_id: str
+    last_accessed: datetime
+    is_expired: bool
+
+
+class ListSessionsResponse(BaseModel):
+    sessions: list[SessionInfo]
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +58,7 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
 
     Args:
         user_input: 使用者對話文字
-        session_id: 會話 ID（可選），若提供則延續先前對話
+        session_id: 會話 ID，若相同則延續先前對話
 
     Returns:
         ChatResponse
@@ -96,3 +107,9 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
         return ChatResponse(error=str(e))
+
+@router.get("/chat/sessions", response_model=ListSessionsResponse)
+async def handle_list_chat_sessions():
+    """列出現在會話(session)清單"""
+    sessions = await session_manager.list_sessions()
+    return ListSessionsResponse(sessions=sessions)
