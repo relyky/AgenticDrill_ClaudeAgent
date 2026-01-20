@@ -62,7 +62,11 @@ class SessionManager:
         """取得所有 session 清單"""
         async with self._sessions_lock:
             return [
-                {"conversation_no": state.conversation_no}
+                {
+                    "conversation_no": state.conversation_no,
+                    "dialogue_turn": state.dialogue_turn,
+                    "running_total_cost_usd": state.running_total_cost_usd
+                }
                 for state in self._sessions.values()
             ]
 

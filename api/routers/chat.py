@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from claude_agent_sdk import ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
 
@@ -12,21 +12,17 @@ class ChatRequest(BaseModel):
     conversation_no: int = None
 
 class ChatResponse(BaseModel):
-    responseText: str = ""
-    conversation_no: int | None = None
+    responseText: str
+    conversation_no: int
     usage: dict | None = None
-    total_cost_usd: float | None = None
-    running_total_cost_usd: float | None = None
-    dialogue_turn: int | None = None
-    error: str | None = None
+    total_cost_usd: float
+    running_total_cost_usd: float
+    dialogue_turn: int
 
 class SessionInfo(BaseModel):
-    conversation_no: int
-
-
-class ListSessionsResponse(BaseModel):
-    sessions: list[SessionInfo]
-
+    conversation_no: int = -1
+    running_total_cost_usd: float = 0
+    dialogue_turn: int = 0
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -108,10 +104,10 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
         )
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
-        return ChatResponse(error=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
 
-@router.get("/chat/sessions", response_model=ListSessionsResponse)
+@router.get("/chat/sessions", response_model=list[SessionInfo])
 async def handle_list_chat_sessions():
     """列出現在會話(session)清單"""
     sessions = await session_manager.list_sessions()
-    return ListSessionsResponse(sessions=sessions)
+    return sessions
