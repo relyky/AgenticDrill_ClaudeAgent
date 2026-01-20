@@ -11,14 +11,14 @@ class ChatRequest(BaseModel):
     user_input: str = None
     conversation_no: int = None
 
-
 class ChatResponse(BaseModel):
     responseText: str = ""
     conversation_no: int | None = None
     usage: dict | None = None
     total_cost_usd: float | None = None
+    running_total_cost_usd: float | None = None
+    dialogue_turn: int | None = None
     error: str | None = None
-
 
 class SessionInfo(BaseModel):
     conversation_no: int
@@ -93,6 +93,8 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
                 elif isinstance(message, ResultMessage):
                     usage = message.usage
                     total_cost_usd = message.total_cost_usd
+                    state.running_total_cost_usd = state.running_total_cost_usd + total_cost_usd
+                    state.dialogue_turn = state.dialogue_turn + 1
 
             responseText = "".join(response)
 
@@ -100,12 +102,13 @@ async def handle_chat(request: ChatRequest) -> ChatResponse:
             responseText=responseText,
             conversation_no=state.conversation_no,
             usage=usage,
-            total_cost_usd=total_cost_usd
+            total_cost_usd=total_cost_usd,
+            running_total_cost_usd=state.running_total_cost_usd,
+            dialogue_turn=state.dialogue_turn
         )
     except Exception as e:
         logger.exception(f"handle_chat exception: {e}")
         return ChatResponse(error=str(e))
-
 
 @router.get("/chat/sessions", response_model=ListSessionsResponse)
 async def handle_list_chat_sessions():

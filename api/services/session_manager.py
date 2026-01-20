@@ -13,7 +13,8 @@ class SessionState:
     conversation_no: int
     client: ClaudeSDKClient
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
+    running_total_cost_usd: float = 0  # 累計會話總成本
+    dialogue_turn: int = 0       # 對話回合數
 
 class SessionManager:
     """管理多個 Claude SDK 會話（每個 session 獨立 client）"""
