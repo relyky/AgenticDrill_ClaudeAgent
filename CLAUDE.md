@@ -35,14 +35,20 @@ api/
 ├── routers/                # API 路由模組
 │   ├── health.py           # /healthz 健康檢查端點
 │   ├── query.py            # /query 端點，支援檔案上傳
-│   └── chat.py             # /chat 端點，純文字對話
+│   └── chat.py             # /chat 端點，會話管理
+├── services/
+│   └── session_manager.py  # 會話狀態管理 (SessionManager 單例)
 └── sdk_mcp_server.py       # MCP 工具定義 (使用 @tool 裝飾器)
 ```
 
 **請求流程:**
 ```
-Request → router → ClaudeSDKClient → Claude AI (with MCP tools) → Response
+Request → router → SessionManager → ClaudeSDKClient → Claude AI (with MCP tools) → Response
 ```
+
+**會話管理架構:**
+- `SessionManager`: 管理多個獨立的 Claude SDK 會話，每個 session 有獨立的 `ClaudeSDKClient`
+- `SessionState`: 包含 conversation_no、client、lock（並發控制）、累計成本與對話回合數
 
 **MCP 工具定義模式:**
 ```python
@@ -51,13 +57,18 @@ async def tool_name(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": "result"}]}
 ```
 
+**FastAPI 路由順序注意事項:**
+靜態路由必須定義在動態路由之前，例如 `/chat/create` 必須在 `/chat/{conversation_no}` 之前，否則 FastAPI 會將 `create` 當作動態參數解析。
+
 ## API Endpoints
 
 | 端點 | 方法 | 說明 |
 |------|------|------|
 | `/healthz` | GET | 健康檢查 |
 | `/query` | POST | 支援檔案上傳的查詢 (multipart/form-data) |
-| `/chat` | POST | 純文字對話 (JSON) |
+| `/chat/create` | POST | 建立新會話 (JSON: `{system_prompt?, user_input}`) |
+| `/chat/{conversation_no}` | POST | 接續現有會話 (JSON: `{user_input}`) |
+| `/chat/sessions` | GET | 列出所有會話清單 |
 
 ## 檔案上傳支援格式 (/query)
 
