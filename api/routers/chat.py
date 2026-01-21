@@ -11,6 +11,7 @@ class ChatOptions(BaseModel):
 class ChatInfo(BaseModel):
     conversation_no: int = -1
     subject: str
+    running_total_tokens: int
     running_total_cost_usd: float = 0
     dialogue_turn: int = 0
 
@@ -54,6 +55,7 @@ async def handle_chat_creation(request: ChatOptions) -> ChatInfo:
         return ChatInfo(
             conversation_no=state.conversation_no,
             subject=state.subject,
+            running_total_tokens=state.running_total_tokens,
             running_total_cost_usd=state.running_total_cost_usd,
             dialogue_turn=state.dialogue_turn
         )
