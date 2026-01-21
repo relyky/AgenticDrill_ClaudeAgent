@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from claude_agent_sdk import query, ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
+from claude_agent_sdk import query, ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
 from api.sdk_mcp_server import create_general_tools_mcp
 
 logger = logging.getLogger(__name__)
@@ -11,19 +11,15 @@ default_system_prompt = """
 You are a helpful assistant. Your native language is Traditional Chinese (zh-TW).
 """
 
-async def generate_subject(user_input: str) -> str:
+async def generate_subject(user_input: str) -> tuple[str, int, float]:
     """
     依據使用者輸入文字生成主題(subject)
 
-    中文 system_prompt:   
-    "根據使用者輸入，直接生成一個簡潔扼要的主題。"
-    "只輸出主題本身，不要引號、不要前綴、不要多餘說明。"
+    Args:
+        user_input: 使用者輸入文字
 
-    "Generate a concise, to-the-point subject based on the user input."
-    "Return the subject text ONLY—no quotes, no preamble, no chatter."
-
-    "Identify a concise 2-5 word topic for the following input."
-    "Return the topic text ONLY—strictly no quotes, preamble, or punctuation."
+    Returns:
+        tuple[str, int, float]: (subject 主題, total_tokens, total_cost_usd)
     """
     options = ClaudeAgentOptions(
         model="haiku",
@@ -40,15 +36,22 @@ Constraints:
     )
     
     # 收集回應
-    response_parts = [
-        block.text
-        async for message in query(prompt=user_input, options=options)
-        if isinstance(message, AssistantMessage)
-        for block in message.content
-        if isinstance(block, TextBlock)
-    ]
-    
-    return "".join(response_parts).strip()
+    response_parts = []
+    total_tokens = 0
+    total_cost_usd = 0.0
+
+    async for message in query(prompt=user_input, options=options):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    response_parts.append(block.text)
+        elif isinstance(message, ResultMessage):
+            if message.usage:
+                total_tokens = message.usage.get("input_tokens", 0) + message.usage.get("output_tokens", 0)
+            total_cost_usd = message.total_cost_usd or 0.0
+
+    subject = "".join(response_parts).strip()
+    return subject, total_tokens, total_cost_usd
 
 
 @dataclass
@@ -59,7 +62,8 @@ class SessionState:
     client: ClaudeSDKClient
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     running_total_cost_usd: float = 0  # 累計會話總成本
-    dialogue_turn: int = 0       # 對話回合數
+    running_total_tokens: int = 0      # 累計會話消耗 tokens
+    dialogue_turn: int = 0             # 對話回合數
 
 class SessionManager:
     """管理多個 Claude SDK 會話（每個 session 獨立 client）"""
@@ -91,24 +95,28 @@ class SessionManager:
     async def create_session(
         self,
         system_prompt: str,
-        subject: str
+        first_user_input: str
     ) -> tuple[ClaudeSDKClient, SessionState]:
         """
-        建立新 session（已存在則拋出例外）
+        建立新 session
 
         Args:
-            conversation_no: 會話編號
-            options: Claude Agent 配置選項
+            system_prompt: LLM system prompt（"default" 使用預設值）
+            first_user_input: 使用者第一次輸入文字
 
         Returns:
-            (client, session_state) 元組
-
-        Raises:
-            ValueError: 若 session 已存在
+            tuple[ClaudeSDKClient, SessionState]: (client, session_state) 元組
+            
+        其他說明-原始中文 system_prompt:               
+            "根據使用者輸入，直接生成一個簡潔扼要的主題。"
+            "只輸出主題本身，不要引號、不要前綴、不要多餘說明。"    
         """
         async with self._sessions_lock:
             # new_conversation_no 依現在 sessions 中最大值再加 + 1
             new_conversation_no = max(self._sessions.keys(), default=0) + 1
+
+            # 把使用者第一輪對話輸入轉換成 subject
+            subject, init_tokens, init_cost = await generate_subject(first_user_input)
 
             # 建立該 Session 專屬的配置，避免修改全域 options
             options = ClaudeAgentOptions(
@@ -127,7 +135,13 @@ class SessionManager:
             client = ClaudeSDKClient(options=options)
             await client.connect()
 
-            state = SessionState(conversation_no=new_conversation_no, subject=subject, client=client)
+            state = SessionState(
+                conversation_no=new_conversation_no,
+                subject=subject,
+                client=client,
+                running_total_cost_usd=init_cost,
+                running_total_tokens=init_tokens
+            )
             self._sessions[new_conversation_no] = state
 
             logger.info(f"Created new session no[{new_conversation_no}]")

@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from claude_agent_sdk import AssistantMessage, TextBlock, ResultMessage
-from api.services.session_manager import session_manager, generate_subject
+from api.services.session_manager import session_manager
 
 class ChatOptions(BaseModel):
     system_prompt: str = "default"
@@ -20,7 +20,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     responseText: str
     conversation_no: int
+    total_tokens: int
     total_cost_usd: float
+    running_total_tokens: int
     running_total_cost_usd: float
     dialogue_turn: int
     usage: dict | None = None
@@ -34,22 +36,19 @@ async def handle_chat_creation(request: ChatOptions) -> ChatInfo:
     使用者與 AI 建立新會話，支援短期記憶能力。
 
     Args:
-        user_input: 使用者對話文字
+        request.system_prompt: LLM system prompt（"default" 使用預設值）
+        request.user_input: 使用者對話文字
 
     Returns:
-        ChatResponse
+        ChatInfo
     """
 
     try:
         logger.debug(f"handle_chat_creation: `{request.system_prompt}` `{request.user_input}`")
-        
-        # 把使用者第一輪對話輸入轉換成 subject                        
-        subject = await generate_subject(request.user_input)
-        
         # 建立新會話
         _, state = await session_manager.create_session(
             system_prompt=request.system_prompt, 
-            subject=subject
+            first_user_input=request.user_input
         )
         
         return ChatInfo(
@@ -70,7 +69,7 @@ async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatRespons
 
     Args:
         user_input: 使用者對話文字
-        conversation_no: 會話識別編號（必填
+        conversation_no: 會話識別編號（必填）
 
     Returns:
         ChatResponse
@@ -99,6 +98,7 @@ async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatRespons
             response = []
             usage = None
             total_cost_usd = None
+            total_tokens = 0
 
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -108,7 +108,10 @@ async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatRespons
                             response.append(block.text)
                 elif isinstance(message, ResultMessage):
                     usage = message.usage
+                    total_tokens = usage["input_tokens"] + usage["output_tokens"]
                     total_cost_usd = message.total_cost_usd
+                    # 累計會話成本
+                    state.running_total_tokens = state.running_total_tokens + total_tokens
                     state.running_total_cost_usd = state.running_total_cost_usd + total_cost_usd
                     state.dialogue_turn = state.dialogue_turn + 1
 
@@ -118,7 +121,9 @@ async def handle_chat(conversation_no: int, request: ChatRequest) -> ChatRespons
             responseText=responseText,
             conversation_no=state.conversation_no,
             usage=usage,
+            total_tokens=total_tokens,
             total_cost_usd=total_cost_usd,
+            running_total_tokens=state.running_total_tokens,
             running_total_cost_usd=state.running_total_cost_usd,
             dialogue_turn=state.dialogue_turn
         )
