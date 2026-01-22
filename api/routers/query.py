@@ -13,7 +13,7 @@ import logging
 import base64
 from pathlib import Path
 from typing import Any, AsyncGenerator, AsyncIterable, List, Optional
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, HTTPException, File, Form
 from pydantic import BaseModel
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ResultMessage
 from api.sdk_mcp_server import create_general_tools_mcp
@@ -23,10 +23,10 @@ from api.sdk_mcp_server import create_general_tools_mcp
 
 class QueryResponse(BaseModel):
     responseText: str = ""
-    session_id: str | None = None
+    session_id: str = ""
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
     usage: dict | None = None
-    total_cost_usd: float | None = None
-    error: str | None = None
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -151,9 +151,10 @@ async def handle_query(
             await client.query(prompt=build_prompt())
 
             response = []
-            session_id = None
+            session_id = ""
             usage = None
-            total_cost_usd = None
+            total_tokens = 0
+            total_cost_usd = 0.0
 
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -164,6 +165,9 @@ async def handle_query(
                 elif isinstance(message, ResultMessage):
                     session_id = message.session_id
                     usage = message.usage
+                    # 取對話成本
+                    logger.debug(f"usage: {usage}")
+                    total_tokens = usage["input_tokens"] + usage["output_tokens"]
                     total_cost_usd = message.total_cost_usd
 
             responseText = "".join(response)
@@ -171,10 +175,11 @@ async def handle_query(
         return QueryResponse(
             responseText=responseText,
             session_id=session_id,
+            total_tokens=total_tokens,
+            total_cost_usd=total_cost_usd,
             usage=usage,
-            total_cost_usd=total_cost_usd
         )
-
+        
     except Exception as e:
         logger.exception(f"handle_query exception: {e}")
-        return QueryResponse(error=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
